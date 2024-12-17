@@ -1,0 +1,1 @@
+indexing truths-cleaned.tsv [-----------------------------------------] 403.15GB/s, eta:  0sindexing truths-cleaned.tsv [========================================---] 1.09GB/s, eta:  0sindexing truths-cleaned.tsv [===========================================] 1.11GB/s, eta:  0s                                                                                            

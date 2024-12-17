@@ -1,0 +1,36 @@
+                Df Sum Sq Mean Sq F value   Pr(>F)    
+stage_combined   6  18939  3156.6   7.394 1.31e-07 ***
+Residuals      524 223691   426.9                     
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+                Df Sum Sq Mean Sq F value   Pr(>F)    
+stage_combined   5  5.205  1.0409     6.6 1.49e-05 ***
+Residuals      142 22.394  0.1577                     
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+383 observations deleted due to missingness
+
+	Pairwise comparisons using t tests with pooled SD 
+
+data:  user_data$degree and user_data$stage_combined 
+
+                        After   Before Before & After Before & During Before & During & After During
+Before                  1.0000  -      -              -               -                       -     
+Before & After          1.0000  1.0000 -              -               -                       -     
+Before & During         1.0000  1.0000 1.0000         -               -                       -     
+Before & During & After 2.1e-06 0.0179 0.0088         0.2952          -                       -     
+During                  1.0000  1.0000 1.0000         1.0000          0.0046                  -     
+During & After          1.0000  1.0000 1.0000         1.0000          0.0241                  1.0000
+
+P value adjustment method: holm 
+# A tibble: 7 × 9
+  stage_combined       mean_degree sd_degree mean_betweenness sd_betweenness mean_closeness sd_closeness
+  <chr>                      <dbl>     <dbl>            <dbl>          <dbl>          <dbl>        <dbl>
+1 After                       3.97    11.9               6.92           46.6            NaN           NA
+2 Before                      1.12     0.338             0               0              NaN           NA
+3 Before & After              4        4.41             17.9           118.             NaN           NA
+4 Before & During             1.92     0.862             0               0              NaN           NA
+5 Before & During & A…       15.9     31.4              49.5           353.             NaN           NA
+6 During                      1.52     1.62              0               0              NaN           NA
+7 During & After              6.08     7.95              2.88           13.2            NaN           NA
+# ℹ 2 more variables: mean_eigenvector <dbl>, sd_eigenvector <dbl>

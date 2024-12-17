@@ -1,0 +1,257 @@
+---
+title: "Analysis-MD"
+output: html_document
+date: "2024-12-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(readr)
+library(dplyr)
+library(igraph)
+library(ggplot2)
+
+# Assign the cleaned data to the 'truths' object
+truths <- read_tsv("truths-cleaned.tsv", quote = "")
+
+# Load the files
+users <- read_tsv("users.tsv")
+follows <- read_tsv("follows.tsv")
+quotes <- read_tsv("quotes.tsv")
+replies <- read_tsv("replies.tsv")
+media <- read_tsv("media.tsv")
+hashtags <- read_tsv("hashtags.tsv")
+external_urls <- read_tsv("external_urls.tsv")
+truth_hashtag_edges <- read_tsv("truth_hashtag_edges.tsv")
+truth_media_edges <- read_tsv("truth_media_edges.tsv")
+truth_external_url_edges <- read_tsv("truth_external_url_edges.tsv")
+truth_user_tag_edges <- read_tsv("truth_user_tag_edges.tsv")
+
+truths <- truths %>%
+  mutate(truth_retruthed = ifelse(truth_retruthed == "", "-1", truth_retruthed))
+
+# Join the truths table to itself on the condition that a truth is retruthed (truth_retruthed == id)
+truths_joined <- truths %>%
+  filter(truth_retruthed != -1) %>%  # Keep only retruthed truths
+  mutate(truth_retruthed = as.integer(truth_retruthed)) %>%
+  left_join(truths, by = c("truth_retruthed" = "id"), suffix = c("_reposter", "_original")) %>%
+  select(from = author_original, to = author_reposter) %>%  # Select the columns we need (author IDs)
+  filter(!is.na(from))  # Keep only rows where 'from' is not NA
+
+
+# Count how many times one author has reposted another author's truth
+edges <- truths_joined %>%
+  group_by(from, to) %>%
+  summarise(reposts = n(), .groups = "drop")  # Count reposts per author pair
+
+top_from_ids <- edges %>%
+  count(to) %>%
+  arrange(desc(n)) %>%
+  slice_head(n = 10) %>%
+  pull(to)  # Extract the 'from' IDs as a vector
+
+# Filter the edges to include only rows where 'from' or 'to' is in the top X
+filtered_edges <- edges %>%
+  filter(from %in% top_from_ids | to %in% top_from_ids) %>%
+  arrange(desc(reposts)) %>%
+  slice_head(n = 250)
+
+# Create a directed graph from the author-to-author edge list
+filtered_g <- graph_from_data_frame(edges, directed = TRUE)
+# Unfiltered network
+g <- graph_from_data_frame(edges, directed = TRUE)
+
+users_for_graph <- users %>%
+  filter(id %in% V(g)$name)  # Ensure only users present in the graph are included
+
+# Create a vector for user names, with a default value for all vertices
+user_names <- rep("Unknown", length(V(g)$name))  # Default "Unknown" for missing users
+followers_count <- rep(0, length(V(g)$name))  # Default to 0 if no match
+following_count <- rep(0, length(V(g)$name))  # Default to 0 if no match
+
+# Match users from the graph with the users_for_graph and assign their follower and following counts
+matches <- match(V(g)$name, users_for_graph$id)
+
+# Only update the follower and following counts where there's a valid match (i.e., not NA)
+valid_matches <- !is.na(matches)
+user_names[valid_matches] <- users_for_graph$username[matches[valid_matches]]
+followers_count[valid_matches] <- users_for_graph$follower_count[matches[valid_matches]]
+following_count[valid_matches] <- users_for_graph$following_count[matches[valid_matches]]
+
+# Assign the follower and following counts as vertex attributes
+V(g)$user_name <- user_names
+V(g)$user_followers <- followers_count
+V(g)$user_following <- following_count
+
+```
+
+## Basic Summary
+
+#### Degree Centrality - top 15 users by total degree
+
+```{r degree-summary, echo=FALSE}
+# Degree of each node (in-degree and out-degree)
+deg_in <- degree(g, mode = "in")  # In-degree (how many times an author is reposted by others)
+deg_out <- degree(g, mode = "out")  # Out-degree (how many times an author reposts others)
+deg_total <- degree(g, mode = "all")  # Total degree
+
+user_degree <- data.frame(user_id = V(g)$name, degree_in = deg_in, degree_out = deg_out, degree_total = deg_total)
+
+user_degree <- user_degree %>%
+  arrange(desc(deg_total)) %>%
+  slice_head(n = 15)
+
+print(user_degree)
+```
+
+#### Network Density
+
+```{r density, echo=FALSE}
+# Network Density (The proportion of possible edges that exist in the graph)
+density_value <- edge_density(g)
+```
+
+Density value: `r density_value`
+
+#### Graph Summary
+```{r summary, echo=FALSE}
+summary(g)
+```
+
+## Centrality Measures
+
+```{r centrality, echo=FALSE}
+
+# Betweenness Centrality (Measures the number of times a node acts as a bridge along the shortest path between two other nodes)
+betweenness_centrality <- betweenness(g, directed = TRUE)
+
+# Closeness Centrality (Measures how close a node is to all other nodes in the network)
+closeness_centrality <- closeness(g, mode = "all", weights = NA)
+
+# Eigenvector Centrality (Measures the influence of a node in a network based on the connections to other highly connected nodes)
+eigenvector_centrality <- eigen_centrality(g)$vector
+
+# Degree Centrality
+degree_centrality <- degree(g)
+
+# PageRank (A variation of eigenvector centrality)
+pagerank_centrality <- page_rank(g)$vector
+
+# Combine centrality scores with user names and IDs
+centrality_scores <- data.frame(
+  user_id = V(g)$name,  # Assuming 'name' is the user ID field
+  user_name = V(g)$user_name,  # Assuming 'username' is the user name field
+  degree = degree_centrality,
+  betweenness = betweenness_centrality,
+  closeness = closeness_centrality,
+  eigenvector = eigenvector_centrality,
+  pagerank = pagerank_centrality
+)
+
+# Rank users by combined centrality measures (e.g., average centrality score)
+centrality_scores$avg_score <- rowMeans(centrality_scores[, 3:6])
+```
+
+#### Influential Users (by average centrality score):
+```{r, echo=FALSE}
+# Sort by highest average score
+top_influential_users <- centrality_scores[order(-centrality_scores$avg_score), ]
+knitr::kable(top_influential_users[1:5, c("user_id", "user_name", "avg_score")], caption = "Top 5 Influential Users (by avg centrality score)")
+```
+
+#### Degree Centrality:
+```{r, echo=FALSE}
+# Degree Centrality - Top Users with user name and id
+degree_centrality_top <- centrality_scores[order(-centrality_scores$degree), ]
+knitr::kable(degree_centrality_top[1:5, c("user_id", "user_name", "degree")], caption = "Top 5 Users by Degree Centrality")
+```
+
+#### Betweenness Centrality:
+```{r, echo=FALSE}
+# Betweenness Centrality - Top Users with user name and id
+betweenness_centrality_top <- centrality_scores[order(-centrality_scores$betweenness), ]
+knitr::kable(betweenness_centrality_top[1:5, c("user_id", "user_name", "betweenness")], caption = "Top 5 Users by Betweenness Centrality")
+```
+
+#### Closeness Centrality:
+```{r, echo=FALSE}
+# Closeness Centrality - Top Users with user name and id
+closeness_centrality_top <- centrality_scores[order(-centrality_scores$closeness), ]
+knitr::kable(closeness_centrality_top[1:5, c("user_id", "user_name", "closeness")], caption = "Top 5 Users by Closeness Centrality")
+```
+
+#### Eigenvector Centrality:
+```{r, echo=FALSE}
+# Eigenvector Centrality - Top Users with user name and id
+eigenvector_centrality_top <- centrality_scores[order(-centrality_scores$eigenvector), ]
+knitr::kable(eigenvector_centrality_top[1:5, c("user_id", "user_name", "eigenvector")], caption = "Top 5 Users by Eigenvector Centrality")
+```
+
+#### Pagerank Centrality:
+```{r, echo=FALSE}
+# Eigenvector Centrality - Top Users with user name and id
+pagerank_centrality_top <- centrality_scores[order(-centrality_scores$pagerank), ]
+knitr::kable(pagerank_centrality_top[1:5, c("user_id", "user_name", "pagerank")], caption = "Top 5 Users by Pagerank Centrality")
+```
+
+## Network Size and Distance Metrics
+
+``` {r distance, echo=FALSE}
+# Strongly Connected Components (SCCs)
+scc <- components(g, mode = "strong")  # For directed graphs
+num_scc <- scc$no  # Number of strongly connected components
+
+# Weakly Connected Components (For undirected connectivity)
+wcc <- components(g, mode = "weak")
+num_wcc <- wcc$no  # Number of weakly connected components
+
+# Shortest Paths Between All Pairs of Nodes
+pairwise_distances <- distances(g)
+
+# Average Path Length
+avg_path_length <- mean(pairwise_distances[is.finite(pairwise_distances)])
+
+# Diameter of the graph
+graph_diameter <- diameter(g, directed = TRUE, weights = NA)
+
+# Eccentricity (Furthest distance from a node to any other node)
+eccentricity_value <- eccentricity(g)
+
+# Geodesic Distance (Shortest path between any two nodes)
+geodesic_distance <- distances(g, v = V(g), to = V(g), weights = NA)
+```
+
+Strongly Connected Components (SCCs):
+
+Number of SCCs: `r num_scc`
+
+Weakly Connected Components (WCCs):
+
+Number of WCCs: `r num_wcc`
+
+Average Path Length: `r avg_path_length`
+
+Graph Diameter: `r graph_diameter`
+
+## Community Detection (Using the Louvain method)
+```{r community, echo=FALSE}
+g_undirected <- as.undirected(g, mode = "collapse")  # Combine edge weights for undirected representation
+
+louvain_community <- cluster_louvain(g_undirected)
+louvain_modularity <- modularity(louvain_community)
+```
+
+Community Detection Results (Louvain Method):
+Number of Communities Detected: `r length(communities(louvain_community))`
+Modularity Value: `r louvain_modularity`
+
+```{r, echo=FALSE}
+comm_size <- c()
+for (i in seq_along(communities(louvain_community))) {
+  community_size <- length(communities(louvain_community)[[i]])  # Get the size of each community
+  comm_size <- comm_size %>% append(cat("Community", i, "has", community_size, "members.\n"))
+}
+
+print(comm_size)
+```
